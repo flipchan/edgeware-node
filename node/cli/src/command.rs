@@ -1,6 +1,6 @@
 // Copyright 2018-2020 Commonwealth Labs, Inc.
 // This file is part of Edgeware.
-
+// 2022 and Beyond, Edgeware DAO
 // Edgeware is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
@@ -25,7 +25,7 @@ impl SubstrateCli for Cli {
 	}
 
 	fn impl_version() -> String {
-		"erup-5".into()
+		"3.5.1".into()
 	}
 
 	fn description() -> String {

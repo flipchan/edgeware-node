@@ -1,0 +1,18 @@
+FROM rust:buster
+LABEL description="Edgeware 3.5.1 precompiled fast version"
+RUN wget https://github.com/edgeware-network/edgeware-node/releases/download/v3.5.1/edgeware_x86linux -O /usr/local/bin/edgeware
+RUN chmod +x /usr/local/bin/edgeware
+
+RUN useradd -m -u 1000 -U -s /bin/sh -d /edgeware edgeware && \
+	mkdir -p /edgeware/.local/share && \
+	mkdir /data && \
+	chown -R edgeware:edgeware /data && \
+	ln -s /data /edgeware/.local/share/edgeware && \
+	rm -rf /usr/bin /usr/sbin
+
+USER edgeware
+EXPOSE 30333 9933 9944
+VOLUME ["/data"]
+
+CMD ["/usr/local/bin/edgeware"]
+
