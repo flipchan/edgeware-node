@@ -19,13 +19,24 @@ use edgeware_cli_opt::RpcConfig;
 use sc_cli::{ChainSpec, Result, RuntimeVersion, SubstrateCli};
 use sc_service::PartialComponents;
 
+///  Return the latest git commit hash, so we can use it in the --version output. // flipchan
+fn get_git_hash() -> Result<String> {
+	let output = std::process::Command::new("git")
+		.args(&["rev-parse", "--verify", "HEAD"])
+		.output()?;
+	let git_hash = String::from_utf8(output.stdout).unwrap_or_default();
+	Ok(git_hash.trim().to_string())
+}
+
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
 		"Edgeware Node".into()
 	}
 
 	fn impl_version() -> String {
-		"3.5.1".into()
+		let out: String = format!("{}#{}", env!("CARGO_PKG_VERSION"), get_git_hash().unwrap_or_default()); // return version and git hash
+		out
+		//"3.5.1".into()
 	}
 
 	fn description() -> String {

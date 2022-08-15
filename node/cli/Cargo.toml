@@ -1,7 +1,7 @@
 [package]
 name = "edgeware-cli"
-version = "3.4.0"
-authors = ["Commonwealth Labs <hello@commonwealth.im>"]
+version = "3.5.1"
+authors = ["Commonwealth Labs <hello@commonwealth.im>", "flipchan @ Edgeware DAO"]
 description = "Edgeware implementation using a substrate node."
 build = "build.rs"
 edition = "2021"
