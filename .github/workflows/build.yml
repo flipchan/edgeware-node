@@ -35,7 +35,7 @@ jobs:
             ${{ runner.os }}-rust-
 
       - name: Module tests
-        run: ./scripts/test.sh
+        run: cargo test --release
       
       - name: Build binary
         run: cargo build --release
