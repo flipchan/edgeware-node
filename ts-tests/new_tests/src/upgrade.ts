@@ -1,6 +1,6 @@
-import { hexToNumber, bnToHex, hexToBigInt } from "@polkadot/util";
+//import { hexToNumber, bnToHex, hexToBigInt } from "@polkadot/util";
 import { BN } from "@polkadot/util";
-import { encodeAddress, blake2AsHex, cryptoWaitReady } from "@polkadot/util-crypto";
+import { blake2AsHex, cryptoWaitReady } from "@polkadot/util-crypto";
 import { ApiPromise, WsProvider, SubmittableResult } from "@polkadot/api";
 import { HttpProvider } from '@polkadot/rpc-provider'; // we want to use rpc
 import { Struct } from '@polkadot/types';
@@ -8,14 +8,15 @@ import { AccountId, Balance, BlockNumber, Hash } from '@polkadot/types/interface
 //import { Codec, Registry } from '@polkadot/types/types';
 import { KeyringPair } from "@polkadot/keyring/types";
 import { CodePromise } from '@polkadot/api-contract';
-import { assert, expect } from 'chai';
+import { expect } from 'chai';
 //import { compactAddLength } from '@polkadot/util';
 import { promises as fspromise } from 'fs';
-import { createType } from '@polkadot/types';
 import fs from "fs";
 import path from "path";
 //import BN from "bn.js";
 
+
+import type { FrameSupportScheduleMaybeHashed, PalletSchedulerScheduledV3 } from '@polkadot/types/lookup';
 import '@polkadot/api-augment';
 
 //https://github.com/polkadot-js/api/releases/tag/v7.0.1
@@ -25,7 +26,9 @@ import '@polkadot/api-augment';
 //import { assert } from "console";
 import { Keyring } from '@polkadot/keyring';
 import { spec } from '@edgeware/node-types';
-import { skipPartiallyEmittedExpressions } from "typescript";
+import { isConstructorDeclaration, skipPartiallyEmittedExpressions } from "typescript";
+import { AnyJson } from "@polkadot/types/types";
+//import { scheduler } from "@polkadot/types/interfaces/definitions";
 
 export interface TreasuryProposal extends Struct {
   readonly proposer: AccountId;
@@ -60,6 +63,7 @@ async function afterupgrade_test_storage(block: BlockNumber) {
 
 }
 
+// decode hex strings
 function hex_to_string(metadata) {
   return metadata.match(/.{1,2}/g).map(function (v) {
     return String.fromCharCode(parseInt(v, 16));
@@ -247,6 +251,52 @@ function sleep(ms) {
 }
 
 
+async function au_check_scheduler() {
+  console.log(`After upgrade Testing scheduler`);
+  const { api, pair: alice } = await cryptoready_api_sudo();
+  const sudoac = alice;
+
+  const futureblock = await (await api.query.system.number()).toNumber() + 100; //current block plus 100
+
+  const remarkmsg = "my remark";
+
+  const scheduler = api.tx.scheduler.schedule(futureblock, null, 0, { Value: api.tx.system.remarkWithEvent(remarkmsg) });
+
+  //  Send schedule remark
+  const txid = await api.tx.sudo
+    .sudoUncheckedWeight(scheduler, 10000)
+    .signAndSend(alice).finally();
+
+  console.log(`Submitting scheduled remark on block #${futureblock} with tx id: ${txid}`);
+  console.log(`Waiting for next block`);
+  sleep(6000);
+  const capi = await cryptoready_api_simple()
+  //console.log(`Checking que`);
+  const scheduledtask = await capi.query.scheduler.agenda(futureblock).finally();
+  //console.log(scheduledtask.length);
+
+  // if the task is not scheduled at the block we return an error
+  if (scheduledtask.length == 0) {
+    throw new Error('scheduler image not registered');
+
+  }
+  // cant turn codec to generic json type so 
+  var lk = scheduledtask[0].unwrap().toString();
+  const out = lk.match('remark"\:"(0x[a-z-0-9]{1,})\"');//.toHuman();
+  console.log(`Checking that our remark hasnt changed`)
+  expect(remarkmsg).to.equal(hex_to_string(out[1]).replace('\x00', ''), "Remark does not match");
+  console.log(`lk: ${hex_to_string(out[1])}`);
+  //console.log(JSON.stringify(lk, "value"));
+  console.log(`remark test ok`);
+  //lk.args.remark;
+  // const proposal = api.tx.system.remark(`test`); // For newer versions of Substrate
+  // const txid = await api.tx.sudo.submit(
+  //  ).signAndSend(sudoac).finally();
+
+
+}
+
+
 
 async function wait_for_next(current: number) {
 
@@ -308,6 +358,26 @@ export async function sendAndReturnFinalized(
     });
   });
 }
+
+async function au_bounties_check() {
+  console.log(`After upgrade bounties check`);
+  const api = await connect();
+
+  const alice = get_alice();
+  const mydes = "super bounty!";
+  const pbtxid = await api.tx.bounties.proposeBounty(0, mydes).signAndSend(alice);
+  console.log(`Propose bounty sent with txid: ${pbtxid}`);
+
+  const bountydes = await api.query.bounties.bountyDescriptions(0);
+  expect(mydes).to.equal(bountydes.toString(), "Description of bounty does not match");
+
+  const bounty = await api.query.bounties.bounties(0);
+
+}
+
+
+
+
 // check that contracts pallet has been upgraded by using the new pallet functions to submit a ink contract
 async function au_contracts_check() {
   console.log(`Testing contracts`);
@@ -350,8 +420,6 @@ async function au_contracts_check() {
   console.log(`tx2: ${tx2}`);
   const rtx2 = await tx2.signAndSend(alice).finally();
   console.log(`Contract deployed with: ${rtx2}`);
-  let address;
-
   //let address;
 
   //const unsub = await tx2.signAndSend(bob, ({ contract, status }) => {
@@ -471,6 +539,13 @@ async function after_upgrade(pre_version, elections_bu_id, edg0balance, edg1bala
     throw new Error('identity for charlie has failed, data did not migrate');
   }
 
+  //scheduler test
+    await au_check_scheduler();
+  // council voting test
+    await au_voting_test();
+
+    // bounties pallet test
+     await au_bounties_check();
 
   console.log(`Checking elections pallet id changes`);
   expect(elections_bu_id).not.equal(elections_au_id, "Elections Pallet id has not changed");
@@ -497,10 +572,10 @@ async function get_pallets() {
 // Submit new candidacy, check that new candidacy has been added  
 async function au_voting_test() {
 
- 
+
   console.log(`Council Voting test, connecting with wasm ws socket`);
   const { api, pair: bob } = await cryptoready_api(); // use wasm only ws socket
- ///*
+  ///*
   console.log(`Connection with wasm ws socket ok`);
   var candidateCount = await api.query.phragmenElection.candidates<any[]>(); // Vec<(AccountId32,u128)>
   console.log(`Candidates: ${candidateCount}`);
@@ -528,12 +603,12 @@ async function au_voting_test() {
   //const {api, pair: bob} = await cryptoready_api();
   const apiconnect = await cryptoready_api_simple();
   // vote for bob
- 
+
   console.log(`voting for bob`);
   const amountvote = new BN(Math.pow(10, 16).toString());
-  const vtxidawait = await apiconnect.tx.phragmenElection.vote([ bob.address ], amountvote).signAndSend(bob).finally();
+  const vtxidawait = await apiconnect.tx.phragmenElection.vote([bob.address], amountvote).signAndSend(bob).finally();
   console.log(`Voted for bob with tx: ${vtxidawait}`);
-sleep(6000);
+  sleep(6000);
 
 
   const newa = await cryptoready_api_simple();
@@ -545,10 +620,10 @@ sleep(6000);
   console.log(`loopme; ${loopme} kjhbn6zW5vFQ2cF2HrdrLHbMHBhrTrGGuAbc6yAXNY2HgAv`);
   for (var inp in loopme) {
     listan.push(loopme[inp].toString());
-  //  console.log(`inp is: ${loopme[inp]}`);
+    //  console.log(`inp is: ${loopme[inp]}`);
   };
- // console.log(listan.includes("kjhbn6zW5vFQ2cF2HrdrLHbMHBhrTrGGuAbc6yAXNY2HgAv"));
- expect(listan.includes("kjhbn6zW5vFQ2cF2HrdrLHbMHBhrTrGGuAbc6yAXNY2HgAv")).to.equal(true, "vote did not get registered");
+  // console.log(listan.includes("kjhbn6zW5vFQ2cF2HrdrLHbMHBhrTrGGuAbc6yAXNY2HgAv"));
+  expect(listan.includes("kjhbn6zW5vFQ2cF2HrdrLHbMHBhrTrGGuAbc6yAXNY2HgAv")).to.equal(true, "vote did not get registered");
   console.log('vote registered ok');
 
   console.log('removing all votes');
@@ -557,7 +632,7 @@ sleep(6000);
   console.log(`Waiting for next block`);
   sleep(6000);
   console.log(`wakes up`);
-  
+
   const apit = await cryptoready_api_simple();
   const bobsvotes = await apit.query.phragmenElection.voting<any[]>(bob.address);
   console.log(`Checking bobs votes`);
@@ -572,16 +647,17 @@ sleep(6000);
 async function main() {
 
   // run pre-upgrade checks, submit data, store versions
-  // const [pre_version, elections_bu_id, edg0balance, edg1balance, edg2balance, before_pallets] = await before_upgrade();
-
+ const [pre_version, elections_bu_id, edg0balance, edg1balance, edg2balance, before_pallets] = await before_upgrade();
 
   console.log('pushing runtime upgrade');
-  //  await upload_runtime_upgrade();
+  await upload_runtime_upgrade();
   console.log(`waiting for node binary switch`);
-  //   await wait_for_next(pre_version); // query version and delay , synchronously wait for new runtime upgrade spec_verions, this breaks because of a system exit 0 being thrown by polkadot.js
+     
+  await wait_for_next(pre_version as number); // query version and delay , synchronously wait for new runtime upgrade spec_verions, this breaks because of a system exit 0 being thrown by polkadot.js
 
-  //await after_upgrade(pre_version, elections_bu_id, edg0balance, edg1balance, edg2balance, before_pallets);
-  await au_voting_test();
+  console.log('Chain upgraded! Running after upgrade checks');
+  await after_upgrade(pre_version, elections_bu_id, edg0balance, edg1balance, edg2balance, before_pallets);
+  
   console.log('All tests are good');
 }
 
@@ -726,6 +802,20 @@ async function cryptoready_api() {
   return { api, pair: bob };
 }
 
+async function cryptoready_api_sudo() {
+  const keyring = new Keyring({ type: 'sr25519' });
+  await cryptoWaitReady();
+
+  const wsProvider = new WsProvider(config.wsendpoint);
+  const api = await ApiPromise.create({
+    provider: wsProvider
+  });
+  const alice = keyring.addFromUri('//Alice', { name: 'Alice' });
+
+  return { api, pair: alice };
+}
+
+
 async function cryptoready_api_simple() {
   await cryptoWaitReady();
   const wsProvider = new WsProvider(config.wsendpoint);
@@ -748,6 +838,7 @@ export async function connect() {
         beneficiary: 'AccountId',
         bond: 'Balance',
       },
+
 
       specVersion: 'number',
 

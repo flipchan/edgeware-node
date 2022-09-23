@@ -50,6 +50,7 @@ var myresponse = await api.query.pallet.method(input);
 *  Before and after voting with elections
 *  Wasm only ws socket connect  
 *  Council voting tests   
+*  After upgrade scheduler pallet test, submits a scheduled remark in the future(current block + 100) and verifies that the schedule was done and that the remark is correct    
 
 ### Development tips:   
 When this was developed I(flipchan) had two chains running at the same time, the old/current one and the new one. The config makes it super easy to just change port as I was running on instance with `--ws-port 5555 --rpc-port 5558` and the other with `--ws-port 5556  --rpc-port 5559`.
@@ -57,7 +58,19 @@ Copy the wasm file to local disk.
 
 This test suit also comes with the support of uploading a ink contract. Change the 'src/contract/lib.rs' and `cargo +nightly contract build --release`. 
 
+Note:
+These tests require you to set a sudo key for your network.  
 
+
+
+#### Problems  
+
+Solve:  
+```
+Error: The WASM interface has not been initialized. Ensure that you wait for the initialization Promise with waitReady() from @polkadot/wasm-crypto (or cryptoWaitReady() from @polkadot/util-crypto) before attempting to use WASM-only interfaces.
+
+```
+with `cryptoready_api_simple()`
 
 #### Council after voting output:   
 ```shell
