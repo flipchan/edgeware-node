@@ -3,7 +3,7 @@ import { BN } from "@polkadot/util";
 import { blake2AsHex, cryptoWaitReady } from "@polkadot/util-crypto";
 import { ApiPromise, WsProvider, SubmittableResult } from "@polkadot/api";
 import { HttpProvider } from '@polkadot/rpc-provider'; // we want to use rpc
-import { Struct } from '@polkadot/types';
+import { Struct, U32, u32 } from '@polkadot/types';
 import { AccountId, Balance, BlockNumber, Hash } from '@polkadot/types/interfaces/runtime';
 //import { Codec, Registry } from '@polkadot/types/types';
 import { KeyringPair } from "@polkadot/keyring/types";
@@ -248,6 +248,71 @@ function sleep(ms) {
   do {
     currentDate = Date.now();
   } while (currentDate - date < ms);
+}
+
+
+async function au_test_treasury(){
+  const api2 = await connect_without_custom_types();
+  console.log( `After upgrade treasury test`);
+  const amountvalue = 100000;
+  const alice2 = get_alice();
+  const ampro = await (await api2.query.treasury.proposalCount().finally()).toNumber();
+  const proposaltxid = await api2.tx.treasury.proposeSpend(amountvalue, alice2.address).signAndSend(alice2).finally();
+  console.log(`Sending first proposal tx with: ${proposaltxid}`);
+  sleep(5000); // wait for tx to get picked up
+  
+  const proposalsecond = await api2.tx.treasury.proposeSpend(amountvalue/2, alice2.address).signAndSend(alice2).finally();
+  console.log(`Sending second proposal with tx id: ${proposalsecond}`)
+
+  const new_api = await connect_without_custom_types();
+  const newamount = await (await new_api.query.treasury.proposalCount()).toNumber();
+  console.log(`Checking that new proposal get registered`);
+  if (ampro >= newamount){
+    throw new Error('Proposal did not get registered');
+  }
+  console.log(`Proposal registered ok`);
+  const proposalid  = newamount - 1;
+  const myproposal = await new_api.query.treasury.proposals(proposalid).finally();
+  if (!myproposal.isSome) { // check that we got a proposal back
+    throw new Error(`Could not download proposal: ${proposalid}`);
+  }
+  
+  /// check that value has not changed
+  expect(myproposal.unwrap().value.toNumber()).to.equal(amountvalue, "Treasury proposal proposer invalid"); //
+  console.log(`Proposal #${proposalid} is ok: ${myproposal.unwrap().proposer}`);
+
+  // approve proposal
+
+  const sudotxid = await new_api.tx.sudo.sudo(
+    new_api.tx.treasury.approveProposal(proposalid)
+  ).signAndSend(alice2);
+    console.log(`Approved treasury proposal with txid: ${sudotxid}`);
+    sleep(3000);
+  const approvals = await (await new_api.query.treasury.approvals<any[]>());
+  var aps: number[] = [];
+  approvals.find((value, index) => {
+    aps.push(value.toNumber());
+  });
+   
+  console.log(`Checking if proposal was approved`);
+  expect(aps.includes(proposalid)).to.equal(true, "Proposal did not get approved");
+  console.log(`Proposal was approved`);
+
+
+  // reject a prosal
+  console.log(`Rejecting proposals`);
+  const sudotxidr = await new_api.tx.sudo.sudo(
+    new_api.tx.treasury.rejectProposal(proposalid + 1)
+  ).signAndSend(alice2);
+    console.log(`Reject treasury proposal with txid: ${sudotxidr}`);
+    sleep(4000);
+  console.log(`Checking that propsal was rejected`);
+  const apicheck = connect_without_custom_types();
+  const stillalive = await (await apicheck).query.treasury.proposals(proposalid + 1);
+  if (stillalive.isSome){
+    throw new Error("Proposal did not get deleted");
+  }
+  console.log(`Proposal deleted ok`)
 }
 
 
@@ -505,9 +570,10 @@ async function after_upgrade(pre_version, elections_bu_id, edg0balance, edg1bala
   console.log(`Running post upgrade checks`);
   const [edg0, edg1, edg2] = get_edg_keys();
 
-  console.log(`Verifying tweb3 address balance`);
-  const address = 'nJrsrH8dov9Z36kTDpabgCZT8CbK1FbmjJvfU6qbMTG4g4c';
-  // await checkbalance(address); 
+  console.log(`Verifying web3 address balance`);
+  const address = '5CS8Cs8vRoAbxkxc6QpDUQ75pifNsPcMDLXMTQvmHN8CTCpa'; //
+  const web3balance = await checkbalance(address);
+   
   //Check that the random prefunded Balances are the same
   //  const e0b = await checkbalance(edg0.address); 
   //  const e1b = await checkbalance(edg1.address);
@@ -549,6 +615,8 @@ async function after_upgrade(pre_version, elections_bu_id, edg0balance, edg1bala
 
   console.log(`Checking elections pallet id changes`);
   expect(elections_bu_id).not.equal(elections_au_id, "Elections Pallet id has not changed");
+  
+  await au_test_treasury();
   console.log(`After upgrade checks ok`);
 }
 
@@ -657,7 +725,7 @@ async function main() {
 
   console.log('Chain upgraded! Running after upgrade checks');
   await after_upgrade(pre_version, elections_bu_id, edg0balance, edg1balance, edg2balance, before_pallets);
-  
+ 
   console.log('All tests are good');
 }
 
